@@ -24,25 +24,51 @@ class DatabaseManager {
 
             dbQueue = try DatabaseQueue(path: databaseURL.path)
 
-            try createTables()
+            // -------------- MIGRATIONS --------------
+            var migrator = DatabaseMigrator()
+
+            // v1 – original table
+            migrator.registerMigration("v1_createTag") { db in
+                try db.create(table: "tag", ifNotExists: true) { t in
+                    t.column("id",        .text).primaryKey()
+                    t.column("title",     .text).notNull()
+                    t.column("type",      .text).notNull()
+                    t.column("content",   .text).notNull()
+                    t.column("latitude",  .double).notNull()
+                    t.column("longitude", .double).notNull()
+                    t.column("timestamp", .datetime).notNull()
+                }
+            }
+
+            // v2 – add the colorHex column
+            migrator.registerMigration("v2_addColorHex") { db in
+                try db.alter(table: "tag") { t in
+                    t.add(column: "colorHex", .text)
+                        .defaults(to: "#FF9500")
+                        .notNull()
+                }
+            }
+
+            try migrator.migrate(dbQueue)
+            // -------------- END MIGRATIONS ----------
         } catch {
             fatalError("Database setup error: \(error)")
         }
     }
 
-    private func createTables() throws {
-        try dbQueue.write { db in
-            try db.create(table: "tag", ifNotExists: true) { t in
-                t.column("id", .text).primaryKey()
-                t.column("title", .text).notNull()
-                t.column("type", .text).notNull()
-                t.column("content", .text).notNull()
-                t.column("latitude", .double).notNull()
-                t.column("longitude", .double).notNull()
-                t.column("timestamp", .datetime).notNull()
-            }
-        }
-    }
+//    private func createTables() throws {
+//        try dbQueue.write { db in
+//            try db.create(table: "tag", ifNotExists: true) { t in
+//                t.column("id", .text).primaryKey()
+//                t.column("title", .text).notNull()
+//                t.column("type", .text).notNull()
+//                t.column("content", .text).notNull()
+//                t.column("latitude", .double).notNull()
+//                t.column("longitude", .double).notNull()
+//                t.column("timestamp", .datetime).notNull()
+//            }
+//        }
+//    }
     
     func saveTag(_ tag: Tag) throws {
         try dbQueue.write { db in

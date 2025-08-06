@@ -91,7 +91,7 @@ struct ContentView: View {
                                 } label: {
                                     Image(systemName: "mappin.circle.fill")
                                         .font(.title)
-                                        .foregroundColor(.red)
+                                        .foregroundColor(Color(hex: tag.colorHex) ?? .red)
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -140,11 +140,11 @@ struct ContentView: View {
                         }) {
                             Image(systemName: "plus")
                                 .font(.title)
-                                .foregroundColor(.white)
+                                .foregroundColor(.primary)
                                 .padding()
                                 .background(Color.red)
                                 .cornerRadius(12)
-                                .shadow(color: Color.red, radius: 6)
+                                .shadow(color: Color.red, radius: 2)
                         }
                         .padding()
                     }
@@ -207,6 +207,14 @@ struct ContentView: View {
             )
         ) {
             VStack(spacing: 20) {
+                Image(systemName: "location.slash.circle.fill")
+                    .font(.title)
+                    .foregroundColor(.primary)
+                    .padding()
+                    .background(Color.red)
+                    .cornerRadius(12)
+                    .shadow(color: Color.red, radius: 2)
+                
                 Text("Location Permission Required")
                     .font(.title)
                     .multilineTextAlignment(.center)
@@ -234,6 +242,14 @@ struct ContentView: View {
         }
         .fullScreenCover(isPresented: $isPermissionLimited) {
             VStack(spacing: 20) {
+                Image(systemName: "location.fill.viewfinder")
+                    .font(.title)
+                    .foregroundColor(.primary)
+                    .padding()
+                    .background(Color.red)
+                    .cornerRadius(12)
+                    .shadow(color: Color.red, radius: 2)
+                
                 Text("Full Location Access Needed")
                     .font(.title)
                     .multilineTextAlignment(.center)
@@ -342,7 +358,9 @@ struct TagListView: View {
                             
                         }
                         .padding()
-                        .background(.ultraThinMaterial)   // any colour you’d like
+                        .background(
+                            (Color(hex: tag.colorHex) ?? .orange).opacity(0.15)
+                        )   // any colour you’d like
                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -361,6 +379,7 @@ struct TagListView: View {
 struct AddTagView: View {
     @Environment(\.dismiss) var dismiss
     @ObservedObject var viewModel: TagViewModel
+    @AppStorage("defaultTagColorHex") private var defaultTagColorHex: String = "#FF9500"
 
     @StateObject private var locationManager = LocationManager()
 
@@ -374,12 +393,18 @@ struct AddTagView: View {
 
     @State private var title: String = ""
     @State private var content: String = ""
+    
+    @State private var tagColor: Color = {
+        let hex = UserDefaults.standard.string(forKey: "defaultTagColorHex") ?? "#FF9500"
+        return Color(hex: hex) ?? .orange
+    }()
 
     var body: some View {
         NavigationView {
             Form {
                 Section(header: Text("Tag Title")) {
                     TextField("Enter title", text: $title)
+                    ColorPicker("Tag Color", selection: $tagColor, supportsOpacity: false)
                 }
 
                 Section(header: Text("Tag Type")) {
@@ -494,8 +519,11 @@ struct AddTagView: View {
                                 latitude: 53.5461,
                                 longitude: -113.4938
                             ),
-                        timestamp: Date()
+                        timestamp: Date(),
+                        colorHex: tagColor.toHex() ?? "#FF9500"
                     )
+                    print("🎨 TAG ABOUT TO SAVE:", tagColor.toHex() as Any)
+                    print("📄 NEW TAG COLORHEX:", newTag.colorHex)
                     viewModel.addTag(newTag)
                     dismiss()
                 }
@@ -549,6 +577,11 @@ struct TagDetailView: View {
     @State private var isShowingImageViewer = false
     @State private var showDeleteConfirmation = false
 
+    // 1. Add a helper to compute the tag’s color
+    private var tagColor: Color {
+        Color(hex: tag.colorHex) ?? .orange
+    }
+
     init(tag: Tag, viewModel: TagViewModel) {
         self.tag = tag
         self.viewModel = viewModel
@@ -565,110 +598,94 @@ struct TagDetailView: View {
 
     var body: some View {
         VStack(spacing: 20) {
-            // Title
-            Text(tag.title)
-                .font(.largeTitle)
-                .fontWeight(.semibold)
-                .fontDesign(.rounded)
-                .multilineTextAlignment(.center)
-                .padding(.top, 25)
-            
-            Divider()
-            
+            // Top icon + title
+            VStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(tagColor.opacity(0.2))
+                        .frame(width: 72, height: 72)
+
+                    Image(systemName: {
+                        switch tag.type {
+                        case .image: return "photo"
+                        case .voice: return "waveform"
+                        case .text:  return "text.bubble.fill"
+                        }
+                    }())
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundColor(tagColor)
+                }
+
+                Text(tag.title)
+                    .font(.title2.weight(.semibold))
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.top, 25)
+
+            Divider().padding(.vertical, 4)
+
             // Main content
             Group {
                 let docs = FileManager.default.urls(for: .documentDirectory,
                                                     in: .userDomainMask).first!
                 let mediaDir = docs.appendingPathComponent("Media", isDirectory: true)
                 let url      = mediaDir.appendingPathComponent(tag.content)
-                
+
                 if tag.type == .image {
                     if let uiImage = UIImage(contentsOfFile: url.path) {
-                        Button(action: {
-                            isShowingImageViewer = true
-                        }) {
-                            Image(uiImage: uiImage)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(height: 200)
-                                .cornerRadius(12)
-                                .shadow(radius: 4)
-                        }
-                        .fullScreenCover(isPresented: $isShowingImageViewer) {
-                            ZoomableImageView(image: uiImage)
-                        }
+                        Image(uiImage: uiImage)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxHeight: 250)
+                            .cornerRadius(12)
+                            .shadow(radius: 4)
+                            .padding(.horizontal)
                     } else {
                         Text("Image not found")
                             .foregroundColor(.red)
                     }
-                    
+
                 } else if tag.type == .voice {
                     HStack {
                         Spacer()
                         Button(action: { audioRecorder.playRecording() }) {
                             ZStack {
                                 Circle()
-                                    .fill(
-                                        LinearGradient(
-                                            colors: [Color.blue, Color.cyan],
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                    )
+                                    .fill(tagColor)
                                     .frame(width: 100, height: 100)
-                                    .shadow(
-                                        color: audioRecorder.isPlaying
-                                        ? Color.blue.opacity(0.7) : Color.clear,
-                                        radius: 10
-                                    )
+                                    .shadow(color: tagColor.opacity(0.6), radius: 8)
 
-                                Image(
-                                    systemName: audioRecorder.isPlaying
-                                    ? "pause.fill" : "play.fill"
-                                )
-                                .foregroundColor(.white)
-                                .font(.system(size: 40, weight: .bold))
+                                Image(systemName: audioRecorder.isPlaying ? "pause.fill" : "play.fill")
+                                    .foregroundColor(.white)
+                                    .font(.system(size: 40, weight: .bold))
                             }
                         }
                         Spacer()
                     }
                     .padding()
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(Color.white.opacity(0.1), lineWidth: 1)
-                    )
-                    .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
-                    .padding(.horizontal)
-                    
+
                 } else if tag.type == .text {
                     Text(.init(tag.content))
                         .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(.ultraThinMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16)
-                                .stroke(Color.white.opacity(0.1), lineWidth: 1)
-                        )
-                        .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(tagColor.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
                         .padding(.horizontal)
                 }
             }
-            
-            Spacer()
-            
+
+            Spacer(minLength: 8)
+
             // Action Bar
             HStack {
                 Button(action: { isShowingEditView = true }) {
                     Image(systemName: "square.and.pencil")
                         .font(.title)
-                        .foregroundColor(.yellow)
+                        .foregroundColor(tagColor)
                 }
-                
+
                 Spacer()
-                
+
                 Text(
                     tag.timestamp.formatted(
                         date: .abbreviated,
@@ -676,9 +693,9 @@ struct TagDetailView: View {
                     )
                 )
                 .foregroundColor(.gray)
-                
+
                 Spacer()
-                
+
                 Button(action: {
                     showDeleteConfirmation = true
                 }) {
@@ -688,15 +705,6 @@ struct TagDetailView: View {
                 }
             }
             .padding()
-        }
-        // close button
-        .overlay(alignment: .topTrailing) {
-            Button(action: { dismiss() }) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title)
-                    .foregroundColor(.gray)
-                    .padding(12)
-            }
         }
         .sheet(isPresented: $isShowingEditView) {
             EditTagView(tag: tag, viewModel: viewModel) {
@@ -765,6 +773,7 @@ struct EditTagView: View {
     @State var tag: Tag
     @State private var title: String
     @State private var content: String
+    @State private var tagColor: Color
 
     init(tag: Tag, viewModel: TagViewModel, onSave: (() -> Void)? = nil) {
         self.tag = tag
@@ -772,6 +781,7 @@ struct EditTagView: View {
         self.onSave = onSave
         _title = State(initialValue: tag.title)
         _content = State(initialValue: tag.content)
+        _tagColor = State(initialValue: Color(hex: tag.colorHex) ?? .orange)
     }
 
     var body: some View {
@@ -779,6 +789,10 @@ struct EditTagView: View {
             Form {
                 Section(header: Text("Edit Title")) {
                     TextField("Enter new title", text: $title)
+                }
+                
+                Section(header: Text("Edit Color")) {
+                    ColorPicker("Tag Color", selection: $tagColor, supportsOpacity: false)
                 }
 
                 Section(header: Text("Edit Content")) {
@@ -790,6 +804,7 @@ struct EditTagView: View {
                         )
                         .lineLimit(5...10)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
+                        
                     } else if tag.type == .image {
                         Text("Editing image not supported yet")
                             .foregroundColor(.gray)
@@ -802,6 +817,7 @@ struct EditTagView: View {
                 Button("Save Changes") {
                     tag.title = title
                     tag.content = content
+                    tag.colorHex = tagColor.toHex() ?? tag.colorHex
                     viewModel.updateTag(tag)
                     dismiss()
                     onSave?()  // This will close the TagDetailView

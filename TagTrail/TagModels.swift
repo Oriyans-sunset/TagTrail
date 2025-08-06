@@ -23,12 +23,13 @@ struct Tag: Identifiable, Codable, FetchableRecord, PersistableRecord {
     var latitude: Double
     var longitude: Double
     var timestamp: Date
+    var colorHex: String = "#FF9500"
 
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
 
-    init(id: UUID = UUID(), title: String, type: TagType, content: String, coordinate: CLLocationCoordinate2D, timestamp: Date = Date()) {
+    init(id: UUID = UUID(), title: String, type: TagType, content: String, coordinate: CLLocationCoordinate2D, timestamp: Date = Date(), colorHex: String = "#FF9500") {
         self.id = id
         self.title = title
         self.type = type
@@ -36,6 +37,7 @@ struct Tag: Identifiable, Codable, FetchableRecord, PersistableRecord {
         self.latitude = coordinate.latitude
         self.longitude = coordinate.longitude
         self.timestamp = timestamp
+        self.colorHex = colorHex
     }
 }
 

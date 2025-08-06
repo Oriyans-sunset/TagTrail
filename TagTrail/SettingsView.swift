@@ -10,6 +10,8 @@ import SwiftUI
 struct SettingsView: View {
     @State private var showingPrivacy = false
     @State private var showingHowToUse = false
+    @AppStorage("defaultTagColorHex") private var defaultTagColorHex: String = "#FF9500"
+    
     var body: some View {
             let styledText: AttributedString = {
                 var result = AttributedString("TagTrail")
@@ -72,6 +74,16 @@ struct SettingsView: View {
                     Button("How to Use TagTrail") {
                         showingHowToUse = true
                     }
+                }
+                
+                Section(header: Text("Defaults")) {
+                    ColorPicker("Default Tag Color",
+                                selection: Binding(
+                                    get: { Color(hex: defaultTagColorHex) ?? .orange },
+                                    set: { newColor in
+                                        defaultTagColorHex = newColor.toHex() ?? "#FF9500"
+                                    }),
+                                supportsOpacity: false)
                 }
                 
             }
