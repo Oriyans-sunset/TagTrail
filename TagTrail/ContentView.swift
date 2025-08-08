@@ -383,6 +383,14 @@ struct AddTagView: View {
 
     @StateObject private var locationManager = LocationManager()
 
+    // MARK: - Smart Suggestion Model
+    private struct SmartSuggestion: Equatable {
+        let title: String
+        let content: String
+        let tagType: TagType
+        let hint: String    // short sentence shown to the user
+    }
+
     @State private var selectedTagType: TagType = .text
 
     @State private var selectedPhoto: PhotosPickerItem? = nil
@@ -399,9 +407,136 @@ struct AddTagView: View {
         return Color(hex: hex) ?? .orange
     }()
 
+    @State private var smartSuggestion: SmartSuggestion? = nil
+
+    // MARK: - Smart Suggestion Helper
+    private func updateSmartSuggestion(for coord: CLLocationCoordinate2D) {
+        let geocoder = CLGeocoder()
+        let loc = CLLocation(latitude: coord.latitude, longitude: coord.longitude)
+
+        geocoder.reverseGeocodeLocation(loc, preferredLocale: nil) { placemarks, _ in
+            guard let placemark = placemarks?.first else { return }
+
+            let reference = (placemark.areasOfInterest?.first ??
+                             placemark.name ??
+                             "").lowercased()
+
+            let today = Date().formatted(date: .abbreviated, time: .omitted)
+
+            if reference.contains("gym") || reference.contains("fitness") {
+                smartSuggestion = SmartSuggestion(
+                    title: "Gym Workout - \(today)",
+                    content: "sets / reps / weight:\n• Bench Press –  _ × _ @ _kg\n• Incline DB Fly –  _ × _ @ _kg\n• Push-ups –  _ reps",
+                    tagType: .text,
+                    hint: "Looks like you’re at the gym."
+                )
+            } else if reference.contains("restaurant") ||
+                      reference.contains("cafe") ||
+                      reference.contains("diner") {
+                smartSuggestion = SmartSuggestion(
+                    title: "Meal Note - \(today)",
+                    content: "What I ordered:\n• Dish:\n• Drink:\n\nRating ( / 5 ⭐️ ): ",
+                    tagType: .text,
+                    hint: "Enjoying a meal?"
+                )
+            } else if reference.contains("school") ||
+                      reference.contains("university") ||
+                      reference.contains("college") {
+                smartSuggestion = SmartSuggestion(
+                    title: "Study Note - \(today)",
+                    content: "Lecture / Topic:\nKey concepts:\n• \n• \nNext steps:\n• Review slides\n• Practice problems",
+                    tagType: .text,
+                    hint: "You're on campus."
+                )
+            } else if reference.contains("pharmacy") ||
+                      reference.contains("drug") ||
+                      reference.contains("drugstore") {
+                smartSuggestion = SmartSuggestion(
+                    title: "Pharmacy List - \(today)",
+                    content: "Prescription(s):\n• \n\nOver-the-counter:\n• ",
+                    tagType: .text,
+                    hint: "Picking something up at the pharmacy?"
+                )
+            } else if reference.contains("airport") ||
+                      reference.contains("terminal") ||
+                      reference.contains("gate") {
+                smartSuggestion = SmartSuggestion(
+                    title: "Travel Note - \(today)",
+                    content: "Flight: \nCarrier: \nGate: \nDeparture: \nDestination: ",
+                    tagType: .text,
+                    hint: "At the airport—log your flight details?"
+                )
+            } else if reference.contains("office") ||
+                      reference.contains("corporate") ||
+                      reference.contains("business") ||
+                      reference.contains("work") {
+                smartSuggestion = SmartSuggestion(
+                    title: "Work Note - \(today)",
+                    content: "Tasks:\n• \n• \n\nNext steps:\n• ",
+                    tagType: .text,
+                    hint: "At work—quick task note?"
+                )
+            } else {
+                smartSuggestion = nil
+            }
+        }
+    }
+
     var body: some View {
         NavigationView {
             Form {
+                // Smart Suggestion UI
+                if let suggestion = smartSuggestion {
+                    HStack() {
+                        Label {
+                            VStack(alignment: .leading){
+                                Text("🧠Smart suggestion")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundColor(.gray)
+                                Text(suggestion.hint)
+                                    .font(.subheadline.weight(.semibold))
+                            }
+                            
+                        } icon: {
+                            Image(systemName: "lightulb")
+                                .foregroundColor(.red)
+                        }
+                        .labelStyle(.titleAndIcon)
+
+                        Spacer()
+
+                        Button("Auto‑fill") {
+                            title = suggestion.title
+                            content = suggestion.content
+                            selectedTagType = suggestion.tagType
+                            withAnimation(.easeInOut) {
+                                smartSuggestion = nil
+                            }
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button {
+                            withAnimation(.easeInOut) {
+                                smartSuggestion = nil
+                            }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.body)
+                                .foregroundColor(.gray)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, 10)
+                        
+                    }
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color(.secondarySystemBackground))
+                    )
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .animation(.easeInOut, value: smartSuggestion)
+                }
+
                 Section(header: Text("Tag Title")) {
                     TextField("Enter title", text: $title)
                     ColorPicker("Tag Color", selection: $tagColor, supportsOpacity: false)
@@ -528,8 +663,7 @@ struct AddTagView: View {
                     dismiss()
                 }
                 .disabled(
-                    title.isEmpty || content.isEmpty
-                        || audioRecorder.isRecording
+                    title.isEmpty || content.isEmpty || audioRecorder.isRecording
                 )
             }
             .navigationTitle("Add New Tag📍")
@@ -563,6 +697,14 @@ struct AddTagView: View {
                         }
                     }
                 }
+            }
+            .onAppear {
+                if let coord = locationManager.currentLocation {
+                    updateSmartSuggestion(for: coord)
+                }
+            }
+            .onReceive(locationManager.$currentLocation.compactMap { $0 }) { coord in
+                updateSmartSuggestion(for: coord)
             }
         }
     }
