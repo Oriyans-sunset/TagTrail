@@ -9,6 +9,7 @@ import AVFoundation
 import MapKit
 import PhotosUI
 import SwiftUI
+import UIKit
 
 enum Route: Hashable {
     case settings
@@ -117,6 +118,7 @@ struct ContentView: View {
                         annotationContent: { tag in
                             MapAnnotation(coordinate: tag.coordinate) {
                                 Button {
+                                    UISelectionFeedbackGenerator().selectionChanged()
                                     selectedTag = tag
                                 } label: {
                                     Image(systemName: "mappin.circle.fill")
@@ -137,7 +139,10 @@ struct ContentView: View {
                     )
                     .padding()
                     .overlay(alignment: .bottomTrailing) {
-                        Button(action: recenter) {
+                        Button(action: {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            recenter()
+                        }) {
                             Image(systemName: "location.fill")
                                 .font(.body)
                                 .foregroundColor(Color(.systemGray6))
@@ -156,6 +161,7 @@ struct ContentView: View {
                     
                     TagListView(tags: sortedTags) { tag in
                         recenter(on: tag)
+                        selectedTag = tag
                     }
                     .frame(maxHeight: .infinity)
                 }
@@ -165,6 +171,7 @@ struct ContentView: View {
                     HStack {
                         Spacer()
                         Button(action: {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                             // Show tag creation modal
                             isShowingAddTagView = true
                         }) {
@@ -380,8 +387,11 @@ struct TagListView: View {
                                 
                                 Spacer()
                                 
-                                Button(action: { onLocate(tag) }) {
-                                    Image(systemName: "location.circle.fill")
+                                Button(action: {
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    onLocate(tag)
+                                }) {
+                                    Image(systemName: "location.fill.viewfinder")
                                         .font(.title2)
                                         .foregroundColor(Color(.gray))
                                 }
@@ -527,7 +537,7 @@ struct AddTagView: View {
                             }
                             
                         } icon: {
-                            Image(systemName: "lightulb")
+                            Image(systemName: "lightulb") // TO REMOVE
                                 .foregroundColor(.red)
                         }
                         .labelStyle(.titleAndIcon)
@@ -535,6 +545,7 @@ struct AddTagView: View {
                         Spacer()
 
                         Button("Auto‑fill") {
+                            UISelectionFeedbackGenerator().selectionChanged()
                             title = suggestion.title
                             content = suggestion.content
                             selectedTagType = suggestion.tagType
@@ -545,6 +556,7 @@ struct AddTagView: View {
                         .buttonStyle(.bordered)
 
                         Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
                             withAnimation(.easeInOut) {
                                 smartSuggestion = nil
                             }
@@ -578,9 +590,14 @@ struct AddTagView: View {
                         Label("Voice", systemImage: "waveform").tag(TagType.voice)
                     }
                     .pickerStyle(MenuPickerStyle())
-                    .onChange(of: selectedTagType) { _ in
+                    .onChange(of: selectedTagType) { newType in
                         let generator = UISelectionFeedbackGenerator()
                         generator.selectionChanged()
+                        if let suggestion = smartSuggestion, suggestion.tagType != newType {
+                            withAnimation(.easeInOut) {
+                                smartSuggestion = nil
+                            }
+                        }
                     }
                     
                     if selectedTagType == .text {
@@ -635,10 +652,12 @@ struct AddTagView: View {
                                 Button(action: {
                                     if audioRecorder.isRecording {
                                         audioRecorder.stopRecording()
+                                        UINotificationFeedbackGenerator().notificationOccurred(.success)
                                         // Store relative path including Audio/ subfolder so we can rebuild later
                                         content = "Audio/" + audioRecorder.getRecordingURL().lastPathComponent
                                         isAnimating = false
                                     } else {
+                                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                                         audioRecorder.startRecording()
                                         isAnimating = true
                                     }
@@ -674,6 +693,7 @@ struct AddTagView: View {
                 }
 
                 Button("Save Tag") {
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
                     let newTag = Tag(
                         title: title,
                         type: selectedTagType,
@@ -723,6 +743,7 @@ struct AddTagView: View {
                             try? data.write(to: url)
 
                             content = fileName
+                            UINotificationFeedbackGenerator().notificationOccurred(.success)
                         }
                     }
                 }
@@ -746,6 +767,7 @@ struct TagDetailView: View {
     @State private var isShowingEditView = false
     @StateObject private var audioRecorder: AudioRecorder
     @State private var isShowingImageViewer = false
+    @State private var zoomURL: URL? = nil
     @State private var showDeleteConfirmation = false
 
     // 1. Add a helper to compute the tag’s color
@@ -803,19 +825,23 @@ struct TagDetailView: View {
                 let url      = mediaDir.appendingPathComponent(tag.content)
 
                 if tag.type == .image {
-                    if let uiImage = UIImage(contentsOfFile: url.path) {
-                        Image(uiImage: uiImage)
+                    if let thumb = downsample(imageAt: url, to: CGSize(width: UIScreen.main.bounds.width, height: 300), scale: UIScreen.main.scale) {
+                        Image(uiImage: thumb)
                             .resizable()
                             .scaledToFit()
                             .frame(maxHeight: 250)
                             .cornerRadius(12)
                             .shadow(radius: 4)
                             .padding(.horizontal)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                zoomURL = url
+                                isShowingImageViewer = true
+                            }
                     } else {
                         Text("Image not found")
                             .foregroundColor(.red)
                     }
-
                 } else if tag.type == .voice {
                     HStack {
                         Spacer()
@@ -834,7 +860,6 @@ struct TagDetailView: View {
                         Spacer()
                     }
                     .padding()
-
                 } else if tag.type == .text {
                     Text(.init(tag.content))
                         .padding()
@@ -882,6 +907,12 @@ struct TagDetailView: View {
                 dismiss()
             }
         }
+        .fullScreenCover(isPresented: $isShowingImageViewer) {
+            if let url = zoomURL {
+                ZoomableImageView(url: url)
+                    .ignoresSafeArea()
+            }
+        }
         .alert("Delete this tag?", isPresented: $showDeleteConfirmation) {
             Button("Delete", role: .destructive) {
                 viewModel.deleteTag(tag)
@@ -894,46 +925,6 @@ struct TagDetailView: View {
     }
 }
 
-struct ZoomableImageView: View {
-    let image: UIImage
-    @Environment(\.dismiss) var dismiss
-    @State private var scale: CGFloat = 1.0
-    @State private var lastScale: CGFloat = 1.0
-
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFit()
-                .scaleEffect(scale)
-                .gesture(MagnificationGesture()
-                    .onChanged { value in
-                        scale = lastScale * value
-                    }
-                    .onEnded { _ in
-                        lastScale = scale
-                    }
-                )
-
-            VStack {
-                HStack {
-                    Spacer()
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title)
-                            .foregroundColor(.white)
-                            .padding()
-                    }
-                }
-                Spacer()
-            }
-        }
-    }
-}
 
 struct EditTagView: View {
     @Environment(\.dismiss) var dismiss
@@ -986,6 +977,7 @@ struct EditTagView: View {
                 }
 
                 Button("Save Changes") {
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
                     tag.title = title
                     tag.content = content
                     tag.colorHex = tagColor.toHex() ?? tag.colorHex

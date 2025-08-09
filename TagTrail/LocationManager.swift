@@ -26,10 +26,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate, UN
         UNUserNotificationCenter.current().requestAuthorization(
             options: [.alert, .sound, .badge]
         ) { granted, _ in
-            print("🔔 notif granted:", granted)
         }
         UNUserNotificationCenter.current().delegate = self
-        print("🔔 notif delegate set")
 
         
         //manager.allowsBackgroundLocationUpdates = true
@@ -51,9 +49,6 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate, UN
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        if let loc = locations.last {
-                print("📍", loc.coordinate, "accuracy:", loc.horizontalAccuracy)
-            }
         guard let location = locations.last else { return }
         DispatchQueue.main.async { [weak self] in
             self?.currentLocation = location.coordinate
@@ -83,11 +78,6 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate, UN
         stopMonitoring(tag: tag) // make sure we don't have a duplicate
         manager.startMonitoring(for: region)
         manager.requestState(for: region)
-        
-        print("🛰 registered region", region.identifier,
-                  "center:", region.center,
-                  "radius:", region.radius)
-            print("🛰 total regions now:", manager.monitoredRegions.count)
     }
     
     /// Stop monitoring and remove the geofence for a tag
@@ -103,7 +93,6 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate, UN
     /// Notification when the user enters a tag region
     func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
         guard region is CLCircularRegion else { return }
-        print("🚩 didEnterRegion", region.identifier)      // 🔽 NEW
 
         let content = UNMutableNotificationContent()
         content.title = "You’re near a saved tag!"
@@ -116,7 +105,6 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate, UN
             trigger: nil      // deliver immediately
         )
         UNUserNotificationCenter.current().add(request) { err in
-            print("🔔 add err:", err as Any)
         }
     }
     // Display notifications while app is in the foreground
