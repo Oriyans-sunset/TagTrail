@@ -11,6 +11,11 @@ struct SettingsView: View {
     @State private var showingPrivacy = false
     @State private var showingHowToUse = false
     @AppStorage("defaultTagColorHex") private var defaultTagColorHex: String = "#FF9500"
+    @AppStorage("tagSortOption") private var tagSortRaw: String = TagSortOption.newest.rawValue
+    private var sortOption: TagSortOption {
+        get { TagSortOption(rawValue: tagSortRaw) ?? .newest }
+        set { tagSortRaw = newValue.rawValue }
+    }
     
     var body: some View {
             let styledText: AttributedString = {
@@ -50,16 +55,27 @@ struct SettingsView: View {
                     .listRowBackground(Color.clear)
                 }
                 
-                Section(header: Text("About")) {
-                    
-                    HStack {
-                        Text("App Version")
-                        Spacer()
-                        Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "N/A")
-                            .foregroundColor(.gray)
+                Section(header: Text("Defaults")) {
+                    Picker("Tag Sorting",
+                           selection: Binding(
+                               get: { TagSortOption(rawValue: tagSortRaw) ?? .newest },
+                               set: { tagSortRaw = $0.rawValue }
+                           )) {
+                        ForEach(TagSortOption.allCases, id: \.self) { option in
+                            Text(option.rawValue).tag(option)
+                        }
                     }
+                    .pickerStyle(.navigationLink)
+                    
+                    ColorPicker("Default Tag Color",
+                                selection: Binding(
+                                    get: { Color(hex: defaultTagColorHex) ?? .orange },
+                                    set: { newColor in
+                                        defaultTagColorHex = newColor.toHex() ?? "#FF9500"
+                                    }),
+                                supportsOpacity: false)
                 }
-                
+
                 Section(header: Text("Legal")) {
                     Button(action: {
                         // open privacy sheet
@@ -76,14 +92,13 @@ struct SettingsView: View {
                     }
                 }
                 
-                Section(header: Text("Defaults")) {
-                    ColorPicker("Default Tag Color",
-                                selection: Binding(
-                                    get: { Color(hex: defaultTagColorHex) ?? .orange },
-                                    set: { newColor in
-                                        defaultTagColorHex = newColor.toHex() ?? "#FF9500"
-                                    }),
-                                supportsOpacity: false)
+                Section(header: Text("About")) {
+                    HStack {
+                        Text("App Version")
+                        Spacer()
+                        Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "N/A")
+                            .foregroundColor(.gray)
+                    }
                 }
                 
             }

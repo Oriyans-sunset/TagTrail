@@ -14,6 +14,14 @@ enum Route: Hashable {
     case settings
 }
 
+enum TagSortOption: String, CaseIterable {
+    case newest = "Newest"
+    case oldest = "Oldest"
+    case titleAZ = "Title A–Z"
+    case titleZA = "Title Z–A"
+    case type = "Type"
+}
+
 struct ContentView: View {
     @State private var selectedTag: Tag? = nil
     @State private var isShowingBottomSheet = false
@@ -35,6 +43,28 @@ struct ContentView: View {
 
     @State private var headerOpacity = 0.0
     @State private var followUser = true
+    
+    @AppStorage("tagSortOption") private var tagSortRaw: String = TagSortOption.newest.rawValue
+
+    private var sortOption: TagSortOption {
+        get { TagSortOption(rawValue: tagSortRaw) ?? .newest }
+        set { tagSortRaw = newValue.rawValue }
+    }
+
+    private var sortedTags: [Tag] {
+        switch sortOption {
+        case .newest:
+            return viewModel.tags.sorted { $0.timestamp > $1.timestamp }
+        case .oldest:
+            return viewModel.tags.sorted { $0.timestamp < $1.timestamp }
+        case .titleAZ:
+            return viewModel.tags.sorted { $0.title.localizedLowercase < $1.title.localizedLowercase }
+        case .titleZA:
+            return viewModel.tags.sorted { $0.title.localizedLowercase > $1.title.localizedLowercase }
+        case .type:
+            return viewModel.tags.sorted { $0.type.rawValue < $1.type.rawValue }
+        }
+    }
 
     var body: some View {
         NavigationStack(path: $path){
@@ -124,7 +154,7 @@ struct ContentView: View {
                         .zIndex(1)
                     }
                     
-                    TagListView(tags: viewModel.tags){ tag in
+                    TagListView(tags: sortedTags) { tag in
                         recenter(on: tag)
                     }
                     .frame(maxHeight: .infinity)
@@ -353,9 +383,8 @@ struct TagListView: View {
                                 Button(action: { onLocate(tag) }) {
                                     Image(systemName: "location.circle.fill")
                                         .font(.title2)
-                                        .foregroundColor(.gray)
+                                        .foregroundColor(Color(.gray))
                                 }
-                            
                         }
                         .padding()
                         .background(
