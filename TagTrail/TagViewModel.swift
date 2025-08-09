@@ -18,10 +18,7 @@ class TagViewModel: ObservableObject {
     func fetchTags() {
         do {
             tags = try DatabaseManager.shared.fetchAllTags()
-            
-            for tag in tags {
-                LocationManager.shared.startMonitoring(tag: tag)
-            }
+            LocationManager.shared.updateAllTags(tags, force: true)
         } catch {
             print("Fetch failed: \(error)")
         }
@@ -30,9 +27,6 @@ class TagViewModel: ObservableObject {
     func addTag(_ tag: Tag) {
         do {
             try DatabaseManager.shared.saveTag(tag)
-            
-            LocationManager.shared.startMonitoring(tag: tag)
-            
             fetchTags()
         } catch {
             print("Save failed: \(error)")

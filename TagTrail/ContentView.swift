@@ -44,6 +44,9 @@ struct ContentView: View {
 
     @State private var headerOpacity = 0.0
     @State private var followUser = true
+
+    @AppStorage("locationOnboardingDeferred") private var locationOnboardingDeferred: Bool = false
+    @State private var showLocationNotice: Bool = false
     
     @AppStorage("tagSortOption") private var tagSortRaw: String = TagSortOption.newest.rawValue
 
@@ -97,8 +100,20 @@ struct ContentView: View {
                             .resizable()
                             .scaledToFit()
                             .frame(height: 28)
-                        
+
                         Spacer()
+
+                        if locationOnboardingDeferred {
+                            Button {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                showLocationNotice = true
+                            } label: {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.title3)
+                                    .foregroundColor(.yellow)
+                            }
+                            .padding(.trailing, 8)
+                        }
                         
                         Button(action: {
                             // take to settings page
@@ -197,6 +212,7 @@ struct ContentView: View {
         .onChange(of: scenePhase) { phase in
             if phase == .active {
                 LocationManager.shared.configureForActiveMap()
+                LocationManager.shared.updateAllTags(viewModel.tags, force: true)
             } else if phase == .background {
                 LocationManager.shared.configureForPassiveMode()
             }
@@ -228,6 +244,9 @@ struct ContentView: View {
             } else {
                 isPermissionLimited = false
             }
+            if newStatus == .authorizedWhenInUse || newStatus == .authorizedAlways {
+                locationOnboardingDeferred = false
+            }
         }
         .sheet(item: $selectedTag) { tag in
             TagDetailView(tag: tag, viewModel: viewModel)
@@ -238,79 +257,165 @@ struct ContentView: View {
             AddTagView(viewModel: viewModel)
         }
         .fullScreenCover(
-            isPresented: .constant(
-                locationManager.authorizationStatus == .denied
-                    || locationManager.authorizationStatus == .notDetermined
+            isPresented: Binding(
+                get: {
+                    (locationManager.authorizationStatus == .denied
+                     || locationManager.authorizationStatus == .notDetermined)
+                    && !locationOnboardingDeferred
+                },
+                set: { _ in }
             )
         ) {
-            VStack(spacing: 20) {
-                Image(systemName: "location.slash.circle.fill")
-                    .font(.title)
-                    .foregroundColor(.primary)
-                    .padding()
-                    .background(Color.red)
-                    .cornerRadius(12)
-                    .shadow(color: Color.red, radius: 2)
+            VStack(spacing: 16) {
+                // Friendly icon
+                ZStack {
+                    Circle()
+                        .fill(Color.blue.opacity(0.15))
+                        .frame(width: 80, height: 80)
+                    Image(systemName: "location")
+                        .font(.system(size: 34, weight: .semibold))
+                        .foregroundColor(.blue)
+                }
+                .padding(.top, 8)
                 
-                Text("Location Permission Required")
-                    .font(.title)
+                // Warm headline & subcopy
+                Text("Let TagTrail see where you are")
+                    .font(.title2).fontWeight(.semibold)
                     .multilineTextAlignment(.center)
-                    .padding()
+                
+                Text("To drop tags at your current spot and show them on the map, TagTrail needs permission to use your location while you’re using the app.")
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(.secondary)
+                
+                // Why 'While In Use' explainer
+                DisclosureGroup("Why allow location?") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
+                            Text("See your current position on the map.")
+                        }
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
+                            Text("Quickly add tags to exactly where you’re standing.")
+                        }
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
+                            Text("Makes your saved tags more accurate and useful.")
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+                .tint(.blue)
+                .padding(.horizontal)
+                
+                Spacer()
 
-                Text(
-                    "TagTrail needs your location in the background to work. TagTrail needs Always-On location access to notify you when you revisit tagged places, even when the app is closed."
-                )
-                .multilineTextAlignment(.center)
-                .padding()
-
-                Button("Go to Settings") {
-                    if let appSettings = URL(
-                        string: UIApplication.openSettingsURLString
-                    ) {
+                MascotFaceView(color: .blue)
+                
+                Spacer(minLength: 8)
+                
+                // Single positive CTA
+                Button {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    if let appSettings = URL(string: UIApplication.openSettingsURLString) {
                         UIApplication.shared.open(appSettings)
                     }
+                } label: {
+                    Text("Allow location access")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
                 }
-                .padding()
-                .background(Color.blue)
-                .foregroundColor(.white)
-                .cornerRadius(8)
+                .buttonStyle(.borderedProminent)
+                .tint(.blue)
+                .controlSize(.large)
+
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    locationOnboardingDeferred = true // dismisses the sheet via binding
+                } label: {
+                    Text("Not now")
+                        .underline()
+                        .foregroundColor(.secondary)
+                }
+                .padding(.top, 6)
             }
             .padding()
         }
         .fullScreenCover(isPresented: $isPermissionLimited) {
-            VStack(spacing: 20) {
-                Image(systemName: "location.fill.viewfinder")
-                    .font(.title)
-                    .foregroundColor(.primary)
-                    .padding()
-                    .background(Color.red)
-                    .cornerRadius(12)
-                    .shadow(color: Color.red, radius: 2)
-                
-                Text("Full Location Access Needed")
-                    .font(.title)
+            VStack(spacing: 16) {
+                // Friendly icon
+                ZStack {
+                    Circle()
+                        .fill(Color.red.opacity(0.15))
+                        .frame(width: 80, height: 80)
+                    Image(systemName: "location.viewfinder")
+                        .font(.system(size: 34, weight: .semibold))
+                        .foregroundColor(.red)
+                }
+                .padding(.top, 8)
+
+                // Warm headline & subcopy
+                Text("Keep TagTrail working in the background")
+                    .font(.title2).fontWeight(.semibold)
                     .multilineTextAlignment(.center)
-                    .padding()
 
-                Text(
-                    "TagTrail needs Always-On location access to notify you when you revisit tagged places, even when the app is closed."
-                )
-                .multilineTextAlignment(.center)
-                .padding()
+                Text("To ping you when you’re near a saved place, TagTrail needs **Always Allow** location access. You can change this anytime in Settings.")
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(.secondary)
 
-                Button("Go to Settings") {
-                    if let appSettings = URL(
-                        string: UIApplication.openSettingsURLString
-                    ) {
+                // Why 'Always' explainer
+                DisclosureGroup("Why ‘Always’?") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
+                            Text("Sends reminders even if the app is closed.")
+                        }
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
+                            Text("Uses low‑power background updates — not constant GPS.")
+                        }
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
+                            Text("You’re in control and can switch it off anytime.")
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+                .tint(.red)
+                .padding(.horizontal)
+
+                Spacer()
+
+                MascotFaceView(color: .red)
+
+                Spacer(minLength: 8)
+
+                // Single positive CTA
+                Button {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    if let appSettings = URL(string: UIApplication.openSettingsURLString) {
                         UIApplication.shared.open(appSettings)
                     }
+                } label: {
+                    Text("Turn on background reminders")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
                 }
-                .padding()
-                .background(Color.blue)
-                .foregroundColor(.white)
-                .cornerRadius(8)
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .controlSize(.large)
             }
             .padding()
+        }
+        .alert("Location is limited", isPresented: $showLocationNotice) {
+            Button("Open Settings") {
+                if let appSettings = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(appSettings)
+                }
+            }
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Without location access while using the app, TagTrail can’t show your current position, drop tags at your exact spot, or recenter the map.")
         }
     }
     
@@ -996,6 +1101,56 @@ struct EditTagView: View {
                         dismiss()
                     }
                 }
+            }
+        }
+    }
+}
+
+
+// MARK: - Cute Mascot (animated)
+struct MascotFaceView: View {
+    var color: Color = .blue
+    @State private var isBobbing = false
+    @State private var isBlinking = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(color.opacity(0.15))
+                .frame(width: 100, height: 100)
+            VStack(spacing: 4) {
+                HStack(spacing: 12) {
+                    Circle()
+                        .fill(color)
+                        .frame(width: 12, height: 12)
+                        .scaleEffect(y: isBlinking ? 0.1 : 1.0, anchor: .center)
+                        .animation(.easeInOut(duration: 0.12), value: isBlinking)
+                    Circle()
+                        .fill(color)
+                        .frame(width: 12, height: 12)
+                        .scaleEffect(y: isBlinking ? 0.1 : 1.0, anchor: .center)
+                        .animation(.easeInOut(duration: 0.12), value: isBlinking)
+                }
+                Capsule()
+                    .fill(color)
+                    .frame(width: 30, height: 6)
+                    .offset(y: 6)
+            }
+        }
+        // Gentle idle bob
+        .offset(y: isBobbing ? -4 : 4)
+        .animation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true), value: isBobbing)
+        .onAppear {
+            // start bobbing
+            isBobbing = true
+        }
+        // Periodic blink
+        .task {
+            while true {
+                try? await Task.sleep(nanoseconds: 2_400_000_000) // wait ~2.4s
+                isBlinking = true
+                try? await Task.sleep(nanoseconds: 140_000_000)    // blink length ~0.14s
+                isBlinking = false
             }
         }
     }

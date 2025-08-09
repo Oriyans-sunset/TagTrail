@@ -16,7 +16,14 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate, UN
     @Published var currentLocation: CLLocationCoordinate2D?
     @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
 
+    // Keep lightweight tag info so we can craft specific notifications
+    private var tagIndex: [String: Tag] = [:] // key = tag.id.uuidString
 
+    // Dynamic monitoring (Apple enforces ~20 monitored regions per app)
+    private let monitoredLimit: Int = 20
+    private let refreshDistanceMeters: CLLocationDistance = 150
+    private var lastRefreshCoordinate: CLLocationCoordinate2D? = nil
+    private var allTagsCache: [Tag] = []
     override init() {
         super.init()
         manager.delegate = self
@@ -48,10 +55,33 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate, UN
         manager.startMonitoringSignificantLocationChanges()
     }
 
+    /// Update the complete list of tags; call this when tags are added/edited/deleted
+    /// - Parameters:
+    ///   - tags: all tags in the database
+    ///   - force: set true to force an immediate refresh of monitored regions
+    func updateAllTags(_ tags: [Tag], force: Bool = false) {
+        allTagsCache = tags
+        if force { refreshMonitoredRegions() }
+    }
+
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
         DispatchQueue.main.async { [weak self] in
-            self?.currentLocation = location.coordinate
+            guard let self = self else { return }
+            self.currentLocation = location.coordinate
+
+            // Refresh the monitored set when we've moved enough (or first fix)
+            if let last = self.lastRefreshCoordinate {
+                let d = CLLocation(latitude: last.latitude, longitude: last.longitude)
+                    .distance(from: CLLocation(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude))
+                if d >= self.refreshDistanceMeters {
+                    self.lastRefreshCoordinate = location.coordinate
+                    self.refreshMonitoredRegions()
+                }
+            } else {
+                self.lastRefreshCoordinate = location.coordinate
+                self.refreshMonitoredRegions()
+            }
         }
     }
     
@@ -62,6 +92,40 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate, UN
     }
     
     private let geofenceRadius: CLLocationDistance = 100   // metres
+
+    /// Select up to `monitoredLimit` tags (nearest to current location if available) and ensure only those are monitored
+    private func refreshMonitoredRegions() {
+        let desiredTags: [Tag]
+        if let here = currentLocation {
+            let me = CLLocation(latitude: here.latitude, longitude: here.longitude)
+            desiredTags = Array(allTagsCache.sorted { a, b in
+                let da = CLLocation(latitude: a.coordinate.latitude, longitude: a.coordinate.longitude).distance(from: me)
+                let db = CLLocation(latitude: b.coordinate.latitude, longitude: b.coordinate.longitude).distance(from: me)
+                return da < db
+            }.prefix(monitoredLimit))
+        } else {
+            // No fix yet: fall back to most recent
+            desiredTags = Array(allTagsCache.sorted { $0.timestamp > $1.timestamp }.prefix(monitoredLimit))
+        }
+        setMonitoredTags(desiredTags)
+    }
+
+    /// Start/stop regions so the monitored set exactly matches `tags`
+    private func setMonitoredTags(_ tags: [Tag]) {
+        let desiredIDs = Set(tags.map { $0.id.uuidString })
+        let currentRegions = manager.monitoredRegions
+        let currentIDs = Set(currentRegions.map { $0.identifier })
+
+        // Stop any regions not desired
+        for region in currentRegions where !desiredIDs.contains(region.identifier) {
+            manager.stopMonitoring(for: region)
+            tagIndex.removeValue(forKey: region.identifier)
+        }
+        // Start any missing regions
+        for tag in tags where !currentIDs.contains(tag.id.uuidString) {
+            startMonitoring(tag: tag)
+        }
+    }
 
     /// Register a geofence for a tag
     func startMonitoring(tag: Tag) {
