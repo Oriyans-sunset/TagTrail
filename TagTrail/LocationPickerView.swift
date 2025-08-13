@@ -131,6 +131,7 @@ struct LocationPickerView: View {
                     }
                 }
                 .frame(maxHeight: .infinity)
+                .padding(.top)
                 // no tap handler needed
 
                 Button {

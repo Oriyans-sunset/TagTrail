@@ -27,8 +27,19 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate, UN
     override init() {
         super.init()
         manager.delegate = self
-        manager.requestAlwaysAuthorization()
-        manager.startUpdatingLocation()
+        // Default to a low‑power passive configuration; we'll switch to active when the map is on screen
+        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        manager.distanceFilter = 30                    // only deliver updates when moving > 30 m
+        manager.activityType = .other                  // general usage
+        manager.pausesLocationUpdatesAutomatically = true
+        manager.allowsBackgroundLocationUpdates = false
+        //manager.requestAlwaysAuthorization()
+        // In passive mode, significant‑change + visits are extremely low power and good enough to refresh geofences
+        manager.startMonitoringSignificantLocationChanges()
+        if CLLocationManager.significantLocationChangeMonitoringAvailable() {
+            // Visits are coalesced entry/exit at places; very cheap background signal for reminders
+            manager.startMonitoringVisits()
+        }
         
         UNUserNotificationCenter.current().requestAuthorization(
             options: [.alert, .sound, .badge]
@@ -41,9 +52,22 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate, UN
         //manager.pausesLocationUpdatesAutomatically = true
     }
     
+    @MainActor
+    func requestWhenInUse() {
+        manager.requestWhenInUseAuthorization()
+    }
+
+    @MainActor
+    func requestAlways() {
+        manager.requestAlwaysAuthorization()
+    }
+    
     func configureForActiveMap() {
         manager.allowsBackgroundLocationUpdates = true
         manager.pausesLocationUpdatesAutomatically = false
+        manager.activityType = .otherNavigation
+        manager.desiredAccuracy = kCLLocationAccuracyBest
+        manager.distanceFilter = 10
         manager.stopMonitoringSignificantLocationChanges()
         manager.startUpdatingLocation()
     }
@@ -51,6 +75,9 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate, UN
     func configureForPassiveMode() {
         manager.allowsBackgroundLocationUpdates = false
         manager.pausesLocationUpdatesAutomatically = true
+        manager.activityType = .other
+        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        manager.distanceFilter = 100
         manager.stopUpdatingLocation()
         manager.startMonitoringSignificantLocationChanges()
     }
@@ -88,6 +115,13 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate, UN
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         DispatchQueue.main.async {
             self.authorizationStatus = manager.authorizationStatus
+            switch manager.authorizationStatus {
+            case .authorizedAlways, .authorizedWhenInUse:
+                // Ensure passive mode is running by default; UI may switch to active map as needed
+                self.configureForPassiveMode()
+            default:
+                break
+            }
         }
     }
     
@@ -176,5 +210,16 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate, UN
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         completionHandler([.banner, .sound])
+    }
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        // When the location is temporarily unavailable, avoid tight restart loops
+        if let clErr = error as? CLError, clErr.code == .locationUnknown {
+            return
+        }
+        // If denied/restricted, stop high‑power updates
+        if let clErr = error as? CLError, clErr.code == .denied {
+            manager.stopUpdatingLocation()
+            manager.stopMonitoringSignificantLocationChanges()
+        }
     }
 }

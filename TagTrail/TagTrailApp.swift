@@ -7,6 +7,7 @@
 
 import SwiftUI
 import UIKit
+import RevenueCat
 
 // MARK: - AppDelegate for background location relaunch
 final class AppDelegate: NSObject, UIApplicationDelegate {
@@ -26,6 +27,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 @main
 struct TagTrailApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    init() {
+            Purchases.logLevel = .warn
+            Purchases.configure(withAPIKey: "appl_xBTXYofRsHdkkKYojCERDRhDyCP")
+        }
     var body: some Scene {
         WindowGroup {
             ContentView()

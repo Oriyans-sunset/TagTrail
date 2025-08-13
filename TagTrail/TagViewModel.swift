@@ -11,6 +11,14 @@ import Foundation
 class TagViewModel: ObservableObject {
     @Published var tags: [Tag] = []
 
+    /// Flag the UI that a free user attempted to exceed the limit.
+    @Published var didHitFreeLimit: Bool = false
+
+    /// Convenience: whether the user can add another tag under the current plan.
+    var canAddMore: Bool {
+        ProAccessManager.shared.canAddTag(currentCount: tags.count)
+    }
+
     init() {
         fetchTags()
     }
@@ -25,6 +33,13 @@ class TagViewModel: ObservableObject {
     }
 
     func addTag(_ tag: Tag) {
+        // Enforce free plan tag limit at the source of truth
+        if !ProAccessManager.shared.canAddTag(currentCount: tags.count) {
+            DispatchQueue.main.async {
+                self.didHitFreeLimit = true
+            }
+            return
+        }
         do {
             try DatabaseManager.shared.saveTag(tag)
             fetchTags()

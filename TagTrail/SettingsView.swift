@@ -10,11 +10,31 @@ import SwiftUI
 struct SettingsView: View {
     @State private var showingPrivacy = false
     @State private var showingHowToUse = false
+    
+    @ObservedObject private var pro = ProAccessManager.shared
     @AppStorage("defaultTagColorHex") private var defaultTagColorHex: String = "#FF9500"
+    @State private var showPaywall: Bool = false
+    @State private var isProActive: Bool = ProAccessManager.shared.isPro
+    
+    // Free palette (non‑Pro users) — keep in sync with AddTagView
+    private let freePaletteHex: [String] = ["#0A84FF", "#34C759", "#FF9500"]
+    private var freePalette: [Color] { freePaletteHex.compactMap { Color(hex: $0) } }
+    
     @AppStorage("tagSortOption") private var tagSortRaw: String = TagSortOption.newest.rawValue
     private var sortOption: TagSortOption {
         get { TagSortOption(rawValue: tagSortRaw) ?? .newest }
         set { tagSortRaw = newValue.rawValue }
+    }
+    
+    // Bridge the stored hex <-> Color for ColorPicker
+    private var defaultColorBinding: Binding<Color> {
+        Binding<Color>(
+            get: { Color(hex: defaultTagColorHex) ?? .orange },
+            set: { newValue in
+                // persist back to hex (fallback to previous if conversion fails)
+                defaultTagColorHex = newValue.toHex() ?? defaultTagColorHex
+            }
+        )
     }
     
     var body: some View {
@@ -66,14 +86,59 @@ struct SettingsView: View {
                         }
                     }
                     .pickerStyle(.navigationLink)
-                    
-                    ColorPicker("Default Tag Color",
-                                selection: Binding(
-                                    get: { Color(hex: defaultTagColorHex) ?? .orange },
-                                    set: { newColor in
-                                        defaultTagColorHex = newColor.toHex() ?? "#FF9500"
-                                    }),
-                                supportsOpacity: false)
+                }
+                
+                Section(header: Text("Default Tag Colour")) {
+                    if pro.isPro {
+                        ColorPicker("Default Colour", selection: defaultColorBinding, supportsOpacity: false)
+                        Text("Sets the starting colour when creating new tags.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Default Colour")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+
+                            HStack(spacing: 12) {
+                                ForEach(Array(zip(freePaletteHex.indices, freePalette)), id: \.0) { index, swatch in
+                                    Button {
+                                        defaultTagColorHex = freePaletteHex[index]
+                                    } label: {
+                                        Circle()
+                                            .fill(swatch)
+                                            .frame(width: 28, height: 28)
+                                            .overlay(
+                                                Circle().stroke(
+                                                    Color.primary.opacity(
+                                                        (Color(hex: defaultTagColorHex)?.toHex()?.lowercased() == swatch.toHex()?.lowercased()) ? 0.8 : 0.15
+                                                    ),
+                                                    lineWidth: (Color(hex: defaultTagColorHex)?.toHex()?.lowercased() == swatch.toHex()?.lowercased()) ? 2 : 1
+                                                )
+                                            )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+
+                                Spacer()
+
+                                Button {
+                                    showPaywall = true
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "lock.fill")
+                                        Text("More colors")
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                            }
+
+                            Text("Free plan includes 3 colours. Unlock Pro for full picker.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.vertical, 2)
+                    }
                 }
 
                 Section(header: Text("Legal")) {
@@ -92,6 +157,41 @@ struct SettingsView: View {
                     }
                 }
                 
+                // Promo for other app
+                Section {
+                    HStack(alignment: .center, spacing: 16) {
+                        Image("mood_music")
+                            .resizable()
+                            .frame(width: 40, height: 40)
+                            .cornerRadius(8)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("MoodMusic")
+                                .font(.headline)
+                            Text("Song suggestion for every emotion")
+                                .font(.subheadline)
+                                .foregroundColor(.gray)
+                        }
+                        Spacer()
+                        Button(action: {
+                            if let url = URL(string: "https://apps.apple.com/in/app/moodmusic-daily-check-in/id6745494875") {
+                                UIApplication.shared.open(url)
+                            }
+                        }) {
+                            Text("GET")
+                                .fontWeight(.bold)
+                                .foregroundColor(.blue)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(
+                                    Capsule()
+                                        .fill(Color.blue.opacity(0.1))
+                                )
+                        }
+                    }
+                    .padding(.vertical, 6)
+                    .listRowBackground(Color.clear)
+                }
+
                 Section(header: Text("About")) {
                     HStack {
                         Text("App Version")
@@ -101,6 +201,12 @@ struct SettingsView: View {
                     }
                 }
                 
+            }
+            .sheet(isPresented: $showPaywall) {
+                PaywallView(isPresented: $showPaywall, isProActive: $isProActive)
+            }
+            .onReceive(pro.$isPro) { newVal in
+                isProActive = newVal
             }
             .navigationTitle("Settings")
             .sheet(isPresented: $showingPrivacy) {

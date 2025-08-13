@@ -86,5 +86,9 @@ struct TagListView: View {
                 .padding()
             }
         }
+        .safeAreaInset(edge: .bottom) {
+            // Extra space to avoid overlap with the floating + button
+            Color.clear.frame(height: 82) // adjust to match FAB height + padding
+        }
     }
 }
