@@ -151,7 +151,7 @@ struct SettingsView: View {
                 }
                 
                 Section(header: Text("Support")) {
-                    Link("Feedback", destination: URL(string: "mailto:ryzenlyve@gmail.com?subject=MoodMusic%20Feedback")!)
+                    Link("Feedback", destination: URL(string: "mailto:ryzenlyve@gmail.com?subject=TagTrail%20Feedback")!)
                     Button("How to Use TagTrail") {
                         showingHowToUse = true
                     }
