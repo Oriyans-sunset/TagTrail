@@ -11,10 +11,13 @@ struct SettingsView: View {
     @State private var showingPrivacy = false
     @State private var showingHowToUse = false
     
-    @ObservedObject private var pro = ProAccessManager.shared
     @AppStorage("defaultTagColorHex") private var defaultTagColorHex: String = "#FF9500"
+
+    
+    
     @State private var showPaywall: Bool = false
     @State private var isProActive: Bool = ProAccessManager.shared.isPro
+    @ObservedObject private var pro = ProAccessManager.shared
     
     // Free palette (non‑Pro users) — keep in sync with AddTagView
     private let freePaletteHex: [String] = ["#0A84FF", "#34C759", "#FF9500"]
@@ -89,7 +92,7 @@ struct SettingsView: View {
                 }
                 
                 Section(header: Text("Default Tag Colour")) {
-                    if pro.isPro {
+                    if isProActive {
                         ColorPicker("Default Colour", selection: defaultColorBinding, supportsOpacity: false)
                         Text("Sets the starting colour when creating new tags.")
                             .font(.caption)
@@ -207,6 +210,10 @@ struct SettingsView: View {
             }
             .onReceive(pro.$isPro) { newVal in
                 isProActive = newVal
+            }
+            .onAppear(){
+                ProAccessManager.shared.refresh()
+                isProActive = pro.isPro
             }
             .navigationTitle("Settings")
             .sheet(isPresented: $showingPrivacy) {

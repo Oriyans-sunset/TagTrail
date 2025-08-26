@@ -51,6 +51,7 @@ struct ContentView: View {
     @State private var isShowingBottomSheet = false
     @State private var isShowingAddTagView = false
     @StateObject private var viewModel = TagViewModel()
+    @State private var pendingAlwaysRequest = false
 
     @StateObject private var locationManager = LocationManager.shared
     @AppStorage("alwaysBannerDismissed") private var alwaysBannerDismissed: Bool = false
@@ -343,8 +344,7 @@ struct ContentView: View {
         .fullScreenCover(
             isPresented: Binding(
                 get: {
-                    (locationManager.authorizationStatus == .denied
-                     || locationManager.authorizationStatus == .notDetermined)
+                    (locationManager.authorizationStatus == .notDetermined)
                     && !locationOnboardingDeferred
                 },
                 set: { _ in }
@@ -401,33 +401,17 @@ struct ContentView: View {
                 // Single positive CTA
                 Button {
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    let status = CLLocationManager.authorizationStatus()
-                    if status == .denied || status == .restricted {
-                        if let appSettings = URL(string: UIApplication.openSettingsURLString) {
-                            UIApplication.shared.open(appSettings)
-                        }
-                    } else {
-                        LocationManager.shared.requestWhenInUse()
-                    }
+                    LocationManager.shared.requestWhenInUse()
                 } label: {
-                    Text("Allow location access")
+                    Text("Continue")
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.blue)
                 .controlSize(.large)
-
-                Button {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    locationOnboardingDeferred = true // dismisses the sheet via binding
-                } label: {
-                    Text("Not now")
-                        .underline()
-                        .foregroundColor(.secondary)
-                }
-                .padding(.top, 6)
             }
+            .interactiveDismissDisabled(true)
             .padding()
             .onDisappear {
                 refreshLocationStatus()
@@ -485,34 +469,54 @@ struct ContentView: View {
                 // Single positive CTA
                 Button {
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    if let appSettings = URL(string: UIApplication.openSettingsURLString) {
-                        UIApplication.shared.open(appSettings)
+
+                    // We only ask for Always when we are already When-In-Use.
+                    if CLLocationManager().authorizationStatus == .authorizedWhenInUse {
+                        // 1) Dismiss the cover so no UI is over the system alert.
+                        showAlwaysBanner = false
+
+                        // 2) Ask for Always after the dismissal animation finishes.
+                        
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                                        LocationManager.shared.requestAlways()
+                                }
+                    } else if CLLocationManager.authorizationStatus() == .denied
+                              || CLLocationManager.authorizationStatus() == .restricted {
+                        // If user previously denied, system won’t show a prompt. Send to Settings.
+                        if let appSettings = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(appSettings)
+                        }
+                    } else {
+                        // Edge case: somehow notDetermined here → request W-i-U first.
+                        showAlwaysBanner = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                            LocationManager.shared.requestWhenInUse()
+                            
+                        }
                     }
                 } label: {
-                    Text("Turn on background reminders")
+                    Text("Continue")
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.red)
                 .controlSize(.large)
-
-                Button {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    alwaysBannerDismissed = true
-                    showAlwaysBanner = false // dismiss the sheet
-                } label: {
-                    Text("Not now")
-                        .underline()
-                        .foregroundColor(.secondary)
-                }
-                .padding(.top, 6)
             }
+            .interactiveDismissDisabled(true)
             .padding()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
             refreshNotificationStatus()
             refreshLocationStatus()
+
+            // If the user tapped Continue on the Always sheet, ask for Always now.
+            if pendingAlwaysRequest, CLLocationManager.authorizationStatus() == .authorizedWhenInUse {
+                pendingAlwaysRequest = false
+                // Small delay lets SwiftUI finish any remaining transitions
+                LocationManager.shared.requestAlways()
+                
+            }
         }
         .alert("Location is limited", isPresented: $showLocationNotice) {
             Button("Open Settings") {

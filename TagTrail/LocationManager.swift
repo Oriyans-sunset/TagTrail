@@ -59,11 +59,31 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate, UN
 
     @MainActor
     func requestAlways() {
-        manager.requestAlwaysAuthorization()
+            let status = CLLocationManager.authorizationStatus()
+            print("requestAlways called with status:", status.rawValue)
+            
+            guard status == .authorizedWhenInUse else {
+                print("Cannot request Always - not in WhenInUse state")
+                return
+            }
+            
+            // CRITICAL: Ensure background updates are OFF before requesting Always
+            manager.allowsBackgroundLocationUpdates = false
+            
+            print("Calling locationManager.requestAlwaysAuthorization()")
+            manager.requestAlwaysAuthorization()
     }
     
     func configureForActiveMap() {
-        manager.allowsBackgroundLocationUpdates = true
+        let status = CLLocationManager.authorizationStatus()
+
+        // Only enable background updates if we have Always permission
+            if status == .authorizedAlways {
+                manager.allowsBackgroundLocationUpdates = true
+            } else {
+                manager.allowsBackgroundLocationUpdates = false
+            }
+        
         manager.pausesLocationUpdatesAutomatically = false
         manager.activityType = .otherNavigation
         manager.desiredAccuracy = kCLLocationAccuracyBest
@@ -73,7 +93,15 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate, UN
     }
 
     func configureForPassiveMode() {
-        manager.allowsBackgroundLocationUpdates = false
+        let status = CLLocationManager.authorizationStatus()
+        
+        // Only allow background updates if we have Always permission
+        if status == .authorizedAlways {
+            manager.allowsBackgroundLocationUpdates = false // Still false in passive mode to save battery
+        } else {
+            manager.allowsBackgroundLocationUpdates = false
+        }
+        
         manager.pausesLocationUpdatesAutomatically = true
         manager.activityType = .other
         manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
@@ -115,11 +143,25 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate, UN
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         DispatchQueue.main.async {
             self.authorizationStatus = manager.authorizationStatus
+            print("Authorization changed to:", manager.authorizationStatus.rawValue)
+            
             switch manager.authorizationStatus {
-            case .authorizedAlways, .authorizedWhenInUse:
-                // Ensure passive mode is running by default; UI may switch to active map as needed
+            case .authorizedAlways:
+                print("Got Always permission - can enable background updates")
+                // Now we can safely enable background updates
+                if manager.allowsBackgroundLocationUpdates == false {
+                    manager.allowsBackgroundLocationUpdates = true
+                }
                 self.configureForPassiveMode()
+                
+            case .authorizedWhenInUse:
+                print("Got WhenInUse permission - background updates OFF")
+                // Ensure background updates are disabled
+                manager.allowsBackgroundLocationUpdates = false
+                self.configureForPassiveMode()
+                
             default:
+                manager.allowsBackgroundLocationUpdates = false
                 break
             }
         }
