@@ -1256,7 +1256,7 @@ struct PaywallView: View {
                     // Feature capsule list
                     VStack(alignment: .leading, spacing: 10) {
                         Label("Unlimited tags", systemImage: "infinity")
-                        Label("Voice tags", systemImage: "waveform")
+                        Label(" Voice tags", systemImage: "waveform")
                         Label("All colours", systemImage: "paintpalette")
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)

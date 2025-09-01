@@ -175,6 +175,7 @@ struct TagDetailView: View {
 struct EditTagView: View {
     @Environment(\.dismiss) var dismiss
     @ObservedObject var viewModel: TagViewModel
+    @ObservedObject private var proManager = ProAccessManager.shared
 
     var onSave: (() -> Void)? = nil
 
@@ -182,6 +183,7 @@ struct EditTagView: View {
     @State private var title: String
     @State private var content: String
     @State private var tagColor: Color
+    @State private var showPaywall = false
 
     init(tag: Tag, viewModel: TagViewModel, onSave: (() -> Void)? = nil) {
         self.tag = tag
@@ -200,7 +202,39 @@ struct EditTagView: View {
                 }
                 
                 Section(header: Text("Edit Color")) {
-                    ColorPicker("Tag Color", selection: $tagColor, supportsOpacity: false)
+                    if proManager.isPro {
+                        ColorPicker("Tag Color", selection: $tagColor, supportsOpacity: false)
+                    } else {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                ForEach([Color.blue, Color.green, Color.orange], id: \.self) { color in
+                                    Circle()
+                                        .fill(color)
+                                        .frame(width: 30, height: 30)
+                                        .overlay(
+                                            Circle().stroke(Color.primary, lineWidth: tagColor == color ? 2 : 0)
+                                        )
+                                        .onTapGesture {
+                                            tagColor = color
+                                        }
+                                }
+                                Spacer()
+                                Button(action: {
+                                    showPaywall = true
+                                }) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "lock.fill")
+                                        Text("More colors")
+                                    }
+                                    .font(.subheadline)
+                                    .foregroundColor(.blue)
+                                }
+                            }
+                            Text("Free plan includes 3 colours. Unlock Pro for more colors.")
+                                .font(.footnote)
+                                .foregroundColor(.gray)
+                        }
+                    }
                 }
 
                 Section(header: Text("Edit Content")) {
@@ -243,6 +277,9 @@ struct EditTagView: View {
                     }
                 }
             }
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView(isPresented: $showPaywall, isProActive: .constant(proManager.isPro))
         }
     }
 }
