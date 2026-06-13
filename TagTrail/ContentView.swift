@@ -50,6 +50,7 @@ struct ContentView: View {
     @State private var selectedTag: Tag? = nil
     @State private var isShowingBottomSheet = false
     @State private var isShowingAddTagView = false
+    @State private var pendingMapCoordinate: CLLocationCoordinate2D? = nil
     @StateObject private var viewModel = TagViewModel()
     @State private var pendingAlwaysRequest = false
 
@@ -87,6 +88,12 @@ struct ContentView: View {
 
     @State private var notificationsAllOff: Bool = false
     @State private var showNotificationsNotice: Bool = false
+
+    @State private var lastMapTouchPoint: CGPoint? = nil
+
+    // What's New presentation
+    @AppStorage("whatsNewLastShownVersion") private var whatsNewLastShownVersion: String = ""
+    @State private var showWhatsNew: Bool = false
 
     private var sortOption: TagSortOption {
         get { TagSortOption(rawValue: tagSortRaw) ?? .newest }
@@ -180,33 +187,61 @@ struct ContentView: View {
                         }
                     }.padding(.horizontal)
                     
-                    Map(
-                        coordinateRegion: $region,
-                        interactionModes: [.pan, .zoom],
-                        showsUserLocation: false,
-                        annotationItems: viewModel.tags,
-                        annotationContent: { tag in
-                            MapAnnotation(coordinate: tag.coordinate) {
-                                Button {
-                                    UISelectionFeedbackGenerator().selectionChanged()
-                                    selectedTag = tag
-                                } label: {
-                                    Image(systemName: "mappin.circle.fill")
-                                        .font(.title)
-                                        .foregroundColor(Color(hex: tag.colorHex) ?? .red)
-                                }
-                                .buttonStyle(.plain)
+                    ZStack {
+                        // Outer container constrains both Map and overlay
+                        ZStack {
+                            GeometryReader { geo in
+                                Map(
+                                    coordinateRegion: $region,
+                                    interactionModes: [.pan, .zoom],
+                                    showsUserLocation: false,
+                                    annotationItems: viewModel.tags,
+                                    annotationContent: { tag in
+                                        MapAnnotation(coordinate: tag.coordinate) {
+                                            Button {
+                                                UISelectionFeedbackGenerator().selectionChanged()
+                                                selectedTag = tag
+                                            } label: {
+                                                Image(systemName: "mappin.circle.fill")
+                                                    .font(.title)
+                                                    .foregroundColor(Color(hex: tag.colorHex) ?? .red)
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
+                                )
+                                .gesture(DragGesture().onChanged { _ in followUser = false })
+                                .simultaneousGesture(
+                                    LongPressGesture(minimumDuration: 0.5)
+                                        .onEnded { _ in
+                                            // We need a touch point to convert to coordinates; since we removed the overlay point capture,
+                                            // use the map's current center for long-press placement as a simple, reliable behavior.
+                                            let coord = region.center
+                                            if viewModel.canAddMore {
+                                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                                pendingMapCoordinate = coord
+                                                isShowingAddTagView = true
+                                            } else {
+                                                UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                                                showPaywallFromLimit = true
+                                            }
+                                        }
+                                )
+                                .overlay(
+                                    Color.clear
+                                        .contentShape(Rectangle())
+                                        .allowsHitTesting(false)
+                                )
                             }
                         }
-                    )
-                    .gesture(DragGesture().onChanged { _ in followUser = false })
-                    .frame(height: UIScreen.main.bounds.height * 0.5)
-                    .clipShape(RoundedRectangle(cornerRadius: 20))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20)
-                            .stroke(Color.black.opacity(0.05), lineWidth: 1)
-                            .shadow(radius: 4)
-                    )
+                        .frame(height: UIScreen.main.bounds.height * 0.5)
+                        .clipShape(RoundedRectangle(cornerRadius: 20))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 20)
+                                .stroke(Color.black.opacity(0.05), lineWidth: 1)
+                                .shadow(radius: 4)
+                        )
+                    }
                     .padding()
                     .overlay(alignment: .bottomTrailing) {
                         Button(action: {
@@ -288,6 +323,9 @@ struct ContentView: View {
         .onAppear {
             LocationManager.shared.configureForActiveMap()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if let coord = pendingMapCoordinate {
+                    region.center = coord
+                }
                 if let currentLocation = locationManager.currentLocation {
                     region = MKCoordinateRegion(
                         center: currentLocation,
@@ -299,6 +337,15 @@ struct ContentView: View {
                 }
                 refreshNotificationStatus()
                 refreshLocationStatus()
+                // Show What's New once per version
+                if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+                    if whatsNewLastShownVersion != version {
+                        // Present after a short delay so it doesn't clash with other covers
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                            showWhatsNew = true
+                        }
+                    }
+                }
             }
         }
         .onDisappear {
@@ -336,10 +383,23 @@ struct ContentView: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $isShowingAddTagView) {
-            AddTagView(viewModel: viewModel)
+            AddTagView(viewModel: viewModel, initialCoordinate: pendingMapCoordinate)
         }
         .sheet(isPresented: $showPaywallFromLimit) {
             PaywallView(isPresented: $showPaywallFromLimit, isProActive: $isProActiveForSheet)
+        }
+        .sheet(isPresented: $showWhatsNew, onDismiss: {
+            if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+                whatsNewLastShownVersion = version
+            }
+        }) {
+            WhatsNewView {
+                // On primary dismiss, store version and close
+                if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+                    whatsNewLastShownVersion = version
+                }
+                showWhatsNew = false
+            }
         }
         .fullScreenCover(
             isPresented: Binding(
@@ -471,7 +531,7 @@ struct ContentView: View {
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
 
                     // We only ask for Always when we are already When-In-Use.
-                    if CLLocationManager().authorizationStatus == .authorizedWhenInUse {
+                    if CLLocationManager.authorizationStatus() == .authorizedWhenInUse {
                         // 1) Dismiss the cover so no UI is over the system alert.
                         showAlwaysBanner = false
 
@@ -564,6 +624,23 @@ struct ContentView: View {
         }
     }
     
+    /// Approximate conversion from a point in the map view to a coordinate, based on current region span.
+    private func pointToCoordinate(point: CGPoint, in frame: CGRect, region: MKCoordinateRegion) -> CLLocationCoordinate2D {
+        // Normalize to 0..1 within the frame
+        let x = max(0, min(1, (point.x - frame.minX) / max(frame.width, 1)))
+        let y = max(0, min(1, (point.y - frame.minY) / max(frame.height, 1)))
+
+        // Longitude: left (-span/2) to right (+span/2)
+        let lonDelta = region.span.longitudeDelta
+        let latDelta = region.span.latitudeDelta
+
+        let lon = region.center.longitude + (Double(x) - 0.5) * lonDelta
+        // Latitude decreases as y increases on screen
+        let lat = region.center.latitude - (Double(y) - 0.5) * latDelta
+
+        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+
     // recenter on tag
     private func recenter(on tag: Tag) {
         followUser = false              // stop auto-follow so user can explore
@@ -648,6 +725,7 @@ extension View {
 struct AddTagView: View {
     @Environment(\.dismiss) var dismiss
     @ObservedObject var viewModel: TagViewModel
+    var initialCoordinate: CLLocationCoordinate2D? = nil
     @AppStorage("defaultTagColorHex") private var defaultTagColorHex: String = "#FF9500"
 
     @StateObject private var locationManager = LocationManager.shared
@@ -819,8 +897,7 @@ struct AddTagView: View {
                             }
                             
                         } icon: {
-                            Image(systemName: "lightulb") // TO REMOVE
-                                .foregroundColor(.red)
+                            
                         }
                         .labelStyle(.titleAndIcon)
 
@@ -1069,23 +1146,54 @@ struct AddTagView: View {
 
                 Button("Save Tag") {
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
-                    let newTag = Tag(
-                        title: title,
-                        type: selectedTagType,
-                        content: content,
-                        coordinate: chosenCoordinate
-                            ?? locationManager.currentLocation
-                            ?? CLLocationCoordinate2D(latitude: 53.5461, longitude: -113.4938),
-                        timestamp: Date(),
-                        colorHex: tagColor.toHex() ?? "#FF9500"
-                    )
-                    print("🎨 TAG ABOUT TO SAVE:", tagColor.toHex() as Any)
-                    print("📄 NEW TAG COLORHEX:", newTag.colorHex)
-                    viewModel.addTag(newTag)
-                    dismiss()
+                    
+                    let currentLocationSnapshot: CLLocationCoordinate2D? = {
+                        // Access on the main actor to satisfy isolation
+                        return locationManager.currentLocation
+                    }()
+
+                    func save(with finalTitle: String) {
+                        let newTag = Tag(
+                            title: finalTitle,
+                            type: selectedTagType,
+                            content: content,
+                            coordinate: chosenCoordinate
+                                ?? currentLocationSnapshot
+                                ?? CLLocationCoordinate2D(latitude: 53.5461, longitude: -113.4938),
+                            timestamp: Date(),
+                            colorHex: tagColor.toHex() ?? "#FF9500"
+                        )
+                        DispatchQueue.main.async {
+                            viewModel.addTag(newTag)
+                            dismiss()
+                        }
+                    }
+
+                    let coord = chosenCoordinate
+                        ?? currentLocationSnapshot
+                        ?? CLLocationCoordinate2D(latitude: 53.5461, longitude: -113.4938)
+
+                    let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if trimmed.isEmpty {
+                        let location = CLLocation(latitude: coord.latitude, longitude: coord.longitude)
+                        // Cancel any in-flight geocode to be safe
+                        geocoder.cancelGeocode()
+                        geocoder.reverseGeocodeLocation(location, preferredLocale: nil) { placemarks, _ in
+                            let placemark = placemarks?.first
+                            let candidate = placemark?.areasOfInterest?.first
+                                ?? placemark?.name
+                                ?? placemark?.locality
+                                ?? placemark?.administrativeArea
+                            let fallback = String(format: "Lat %.5f, Lon %.5f", coord.latitude, coord.longitude)
+                            let autoTitle = (candidate?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? candidate! : fallback
+                            save(with: autoTitle)
+                        }
+                    } else {
+                        save(with: trimmed)
+                    }
                 }
                 .disabled(
-                    title.isEmpty || content.isEmpty || audioRecorder.isRecording || (selectedTagType == .voice && !isProActive) || !viewModel.canAddMore
+                    content.isEmpty || audioRecorder.isRecording || (selectedTagType == .voice && !isProActive) || !viewModel.canAddMore
                 )
                 if !viewModel.canAddMore {
                     Text("Free limit reached (10). Upgrade to add more.")
@@ -1127,6 +1235,10 @@ struct AddTagView: View {
                 }
             }
             .onAppear {
+                if let initial = initialCoordinate {
+                    chosenCoordinate = initial
+                    safeUpdateSmartSuggestion(for: initial)
+                }
                 if let coord = locationManager.currentLocation {
                     safeUpdateSmartSuggestion(for: coord)
                 }
@@ -1406,3 +1518,140 @@ struct PaywallView: View {
     }
 }
 
+// MARK: - What's New Dialog
+struct WhatsNewView: View {
+    var onContinue: () -> Void
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                gradient: Gradient(colors: [Color(.secondarySystemBackground), Color(.systemBackground)]),
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            // Background accents
+            Circle()
+                .fill(Color.blue.opacity(0.18))
+                .frame(width: 320, height: 320)
+                .blur(radius: 120)
+                .offset(x: -140, y: -220)
+
+            Circle()
+                .fill(Color.purple.opacity(0.18))
+                .frame(width: 360, height: 360)
+                .blur(radius: 120)
+                .offset(x: 160, y: 240)
+
+            VStack(spacing: 16) {
+                Spacer(minLength: 0)
+
+                VStack(spacing: 18) {
+                    // Header badge
+                    ZStack {
+                        Circle()
+                            .fill(LinearGradient(colors: [.blue.opacity(0.18), .purple.opacity(0.12)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .frame(width: 72, height: 72)
+                            .overlay(Circle().stroke(Color.blue.opacity(0.35), lineWidth: 1))
+                            .shadow(color: .blue.opacity(0.2), radius: 10, x: 0, y: 4)
+
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 32, weight: .semibold, design: .rounded))
+                            .foregroundColor(.blue)
+                    }
+                    .padding(.top, 6)
+
+                    VStack(spacing: 6) {
+                        Text("What’s New")
+                            .font(.system(.largeTitle, design: .rounded)).bold()
+                            .multilineTextAlignment(.center)
+
+                        if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+                            Text("Version \(version)")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Text("A quick look at the latest improvements.")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        FeatureRow(icon: "bolt.fill", title: "Faster map recenter", detail: "Smoother tracking with smarter throttling.")
+                        FeatureRow(icon: "mic.fill", title: "Voice tags", detail: "Capture thoughts hands‑free (Pro).")
+                        FeatureRow(icon: "paintpalette.fill", title: "New colors", detail: "Pick from a refined palette for your tags.")
+                    }
+                    .padding(16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color(.secondarySystemBackground))
+                    )
+
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        onContinue()
+                    }) {
+                        Text("Continue")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            )
+                            .foregroundColor(.white)
+                            .shadow(color: Color.blue.opacity(0.25), radius: 10, x: 0, y: 6)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(20)
+                .background(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .fill(Color(.systemBackground))
+                        .shadow(color: Color.black.opacity(0.06), radius: 12, x: 0, y: 6)
+                )
+                .padding(.horizontal)
+
+                Button("Learn more") {
+                    if let url = URL(string: "https://example.com/release-notes") {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                .foregroundColor(.secondary)
+                .padding(.bottom, 8)
+
+                Spacer(minLength: 0)
+            }
+        }
+    }
+}
+
+private struct FeatureRow: View {
+    let icon: String
+    let title: String
+    let detail: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.blue.opacity(0.12))
+                    .frame(width: 32, height: 32)
+                Image(systemName: icon)
+                    .foregroundColor(.blue)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                Text(detail)
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+        }
+    }
+}

@@ -143,22 +143,6 @@ struct SettingsView: View {
                         .padding(.vertical, 2)
                     }
                 }
-
-                Section(header: Text("Legal")) {
-                    Button(action: {
-                        // open privacy sheet
-                        showingPrivacy = true
-                    }) {
-                        Text("Privacy")
-                    }
-                }
-                
-                Section(header: Text("Support")) {
-                    Link("Feedback", destination: URL(string: "mailto:ryzenlyve@gmail.com?subject=TagTrail%20Feedback")!)
-                    Button("How to Use TagTrail") {
-                        showingHowToUse = true
-                    }
-                }
                 
                 // Promo for other app
                 Section {
@@ -193,6 +177,22 @@ struct SettingsView: View {
                     }
                     .padding(.vertical, 6)
                     .listRowBackground(Color.clear)
+                }
+
+                Section(header: Text("Legal")) {
+                    Button(action: {
+                        // open privacy sheet
+                        showingPrivacy = true
+                    }) {
+                        Text("Privacy")
+                    }
+                }
+                
+                Section(header: Text("Support")) {
+                    Link("Feedback", destination: URL(string: "mailto:ryzenlyve@gmail.com?subject=TagTrail%20Feedback")!)
+                    Button("How to Use TagTrail") {
+                        showingHowToUse = true
+                    }
                 }
 
                 Section(header: Text("About")) {
