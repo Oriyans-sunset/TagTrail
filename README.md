@@ -2,7 +2,7 @@
 
 TagTrail is a minimalist iOS app that lets you drop personal tags (notes) tied to real-world places. Save quick text, snap a photo, or record a short voice memo right where you are — and get a nudge when you’re back nearby.
 
-> **Status:** Submitted for review. App Store listing coming soon.
+<!--  > **Status:** Submitted for review. App Store listing coming soon.  -->
 
 ---
 
@@ -69,12 +69,13 @@ TagTrail is a minimalist iOS app that lets you drop personal tags (notes) tied t
    - `NSPhotoLibraryAddUsageDescription`
    - `NSMicrophoneUsageDescription`
 
+<!--
 6. **(Optional) RevenueCat setup (WIP)**
    - Add package: `https://github.com/RevenueCat/purchases-ios`
    - Add your **Public API Key** in config
    - Define **Products** in App Store Connect and match identifiers in code
-
-7. **Build & run on a real device**  
+-->
+6. **Build & run on a real device**  
    Background geofencing and audio recording work best on device.
 
 ---
@@ -86,7 +87,6 @@ TagTrail is a minimalist iOS app that lets you drop personal tags (notes) tied t
   - Planned: opt-in CloudKit sync to your private iCloud only.
 - **Photos:** Only required if you attach images.
 - **Microphone:** Only required if you record voice tags.
-- 
 ---
 
 > Notes:
