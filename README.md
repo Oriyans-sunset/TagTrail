@@ -1,6 +1,6 @@
-# TagTrail — Location-based personal tags for iOS
+# TagTrail: Location-based personal tags for iOS
 
-TagTrail is a minimalist iOS app that lets you drop personal tags (notes) tied to real-world places. Save quick text, snap a photo, or record a short voice memo right where you are — and get a nudge when you’re back nearby.
+TagTrail is a minimalist iOS app that lets you drop personal tags (notes) tied to real-world places. Save quick text, snap a photo, or record a short voice memo right where you are and get a nudge when you're back nearby.
 
 <!--  > **Status:** Submitted for review. App Store listing coming soon.  -->
 
